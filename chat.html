@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Papo Livre - Pro</title>
-    <!-- Importando Ícones do Google -->
+    <!-- Importando Ícones do Google Material Symbols -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" />
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -47,10 +47,15 @@
         .msg.sent { align-self: flex-end; background: var(--msg-out); border-bottom-right-radius: 2px; }
         .msg.received { align-self: flex-start; background: var(--msg-in); border-bottom-left-radius: 2px; }
 
-        .sender { font-size: 12px; font-weight: bold; color: var(--accent); margin-bottom: 4px; display: block; cursor: pointer; }
+        /* Cores por Nível */
+        .sender { font-size: 12px; font-weight: bold; margin-bottom: 4px; display: flex; align-items: center; cursor: pointer; }
+        .lvl-novato { color: #888; }
+        .lvl-ativo { color: #008069; }
+        .lvl-expert { color: #7209b7; }
+        .lvl-lenda { color: #ff9f1c; }
         
         /* Visualização Única */
-        .view-once-card { background: rgba(0,0,0,0.05); border: 1px solid var(--accent); padding: 10px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 10px; color: var(--accent); font-weight: bold; font-size: 13px; }
+        .view-once-card { background: rgba(0,0,0,0.05); border: 1px dashed var(--accent); padding: 10px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 10px; color: var(--accent); font-weight: bold; font-size: 13px; }
 
         /* Reações */
         .reactions { position: absolute; bottom: -14px; right: 10px; display: flex; gap: 3px; }
@@ -66,7 +71,7 @@
         .btn-send { width: 48px; height: 48px; background: #00a884; color: white; border: none; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
         .btn-send:active { transform: scale(0.9); }
 
-        .time { font-size: 10px; color: var(--sub-text); text-align: right; margin-top: 4px; }
+        .time-meta { font-size: 10px; color: var(--sub-text); text-align: right; margin-top: 4px; display: flex; justify-content: flex-end; align-items: center; gap: 5px; }
         .hidden { display: none !important; }
         
         .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
@@ -84,10 +89,9 @@
                 </div>
             </div>
             <div class="tools">
-                <!-- Ícones Reais do Google -->
                 <span id="btnViewOnce" class="icon-btn material-symbols-outlined" title="Visualização Única">visibility_lock</span>
                 <span id="btnDark" class="icon-btn material-symbols-outlined" title="Tema">dark_mode</span>
-                <span onclick="window.location.href='index.html'" class="icon-btn material-symbols-outlined" title="Sair">logout</span>
+                <span onclick="window.location.href='auth.html'" class="icon-btn material-symbols-outlined" title="Sair">logout</span>
             </div>
         </div>
 
@@ -130,7 +134,10 @@
         let isViewOnce = false;
         let activeReply = null;
 
+        // Proteção XSS e Criptografia básica (Base64)
         const sanitize = (t) => { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; };
+        const encrypt = (t) => btoa(unescape(encodeURIComponent(t))); 
+        const decrypt = (t) => decodeURIComponent(escape(atob(t)));
 
         onAuthStateChanged(auth, (user) => {
             if(!user) window.location.href = 'auth.html';
@@ -142,7 +149,7 @@
             const input = document.getElementById('msgInput');
             const windowMsg = document.getElementById('msgWindow');
 
-            // --- CONTROLES ---
+            // --- CONTROLES DE TEMA E PRIVACIDADE ---
             document.getElementById('btnDark').onclick = () => {
                 isDarkMode = !isDarkMode;
                 document.body.classList.toggle('dark-mode');
@@ -159,10 +166,10 @@
                 document.getElementById('reply-bar').classList.add('hidden');
             };
 
-            // Online & Digitando
-            const presenceRef = ref(db, `online/${user.uid}`);
-            set(presenceRef, { name: user.displayName });
-            onDisconnect(presenceRef).remove();
+            // Status Online & Digitando
+            const pRef = ref(db, `online/${user.uid}`);
+            set(pRef, { name: user.displayName });
+            onDisconnect(pRef).remove();
             onValue(ref(db, 'online'), s => document.getElementById('online-count').innerText = `${s.size || 0} online`);
 
             let tyTimer;
@@ -177,26 +184,46 @@
                 document.getElementById('typing-status').innerText = n.length ? n.join(', ') + " digitando..." : "";
             });
 
-            // --- ENVIO ---
+            // --- ENVIO DE MENSAGEM ---
             document.getElementById('sendBtn').onclick = () => {
                 const txt = input.value.trim();
                 if(!txt) return;
                 const mRef = push(ref(db, 'messages'));
                 set(mRef, {
-                    uid: user.uid, name: user.displayName, content: txt,
+                    uid: user.uid, name: user.displayName, content: encrypt(txt),
                     time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                     viewOnce: isViewOnce, reply: activeReply
                 }).then(() => {
                     input.value = ""; window.cancelReply();
                     isViewOnce = false; document.getElementById('btnViewOnce').classList.remove('active');
+                    // Incrementar XP
+                    const uRef = ref(db, `users/${user.uid}`);
+                    get(uRef).then(snap => {
+                        const curXp = snap.exists() ? (snap.val().xp || 0) : 0;
+                        update(uRef, { xp: curXp + 1 });
+                    });
                 });
             };
 
             // --- RENDERIZAÇÃO ---
-            onChildAdded(ref(db, 'messages'), (snap) => {
+            onChildAdded(ref(db, 'messages'), async (snap) => {
                 const m = snap.val();
                 const id = snap.key;
                 const isMe = m.uid === user.uid;
+
+                // Busca XP e Selo de Verificado em tempo real
+                const userSnap = await get(ref(db, `users/${m.uid}`));
+                const uData = userSnap.val() || {};
+                const xp = uData.xp || 0;
+                const isVerified = uData.verified || false;
+
+                // Cores por nível
+                let lvlClass = 'lvl-novato';
+                if(xp > 10) lvlClass = 'lvl-ativo';
+                if(xp > 30) lvlClass = 'lvl-expert';
+                if(xp > 60) lvlClass = 'lvl-lenda';
+
+                const badge = isVerified ? '<span class="material-symbols-outlined" style="font-size:14px;color:#00d2ff;vertical-align:middle;margin-left:4px">verified</span>' : '';
 
                 const div = document.createElement('div');
                 div.id = id;
@@ -207,33 +234,44 @@
                     get(rRef).then(s => s.exists() ? remove(rRef) : set(rRef, '❤️'));
                 };
 
+                let decryptedContent = decrypt(m.content);
                 let bodyHTML = '';
                 if(m.viewOnce) {
                     bodyHTML = `
-                        <div class="view-once-card" onclick="window.revealMsg('${id}', '${sanitize(m.content)}')">
+                        <div class="view-once-card" onclick="window.revealMsg('${id}', '${decryptedContent}')">
                             <span class="material-symbols-outlined">visibility</span>
                             Ver Mensagem Secreta
                         </div>`;
                 } else {
                     const imgRe = /(https?:\/\/.*\.(?:png|jpg|jpeg|gif|webp))/i;
-                    const imgMatch = m.content.match(imgRe);
-                    bodyHTML = `<div>${sanitize(m.content)}</div>${imgMatch ? `<img src="${imgMatch[0]}" style="max-width:100%; border-radius:8px; margin-top:8px;">` : ''}`;
+                    const imgMatch = decryptedContent.match(imgRe);
+                    bodyHTML = `<div>${sanitize(decryptedContent)}</div>${imgMatch ? `<img src="${imgMatch[0]}" style="max-width:100%; border-radius:8px; margin-top:8px;">` : ''}`;
                 }
 
                 div.innerHTML = `
                     ${m.reply ? `<div class="reply-box"><b>${m.reply.name}</b>: ${m.reply.text}</div>` : ''}
-                    <span class="sender" onclick="window.prepReply('${m.name}', '${m.content}', ${m.viewOnce})">${m.name}</span>
+                    <span class="sender ${lvlClass}" onclick="window.prepReply('${m.name}', '${decryptedContent}', ${m.viewOnce})">
+                        ${m.name}${badge}
+                    </span>
                     <div id="body-${id}">${bodyHTML}</div>
-                    <div class="time">${m.time} ${isMe ? `<span onclick="window.del('${id}')" style="color:red;margin-left:8px;cursor:pointer">Apagar</span>` : ''}</div>
+                    <div class="time-meta">
+                        <span>${m.time}</span>
+                        <span class="material-symbols-outlined" onclick="window.reportMsg('${id}', '${m.uid}')" style="font-size:16px;cursor:pointer;color:orange">report</span>
+                        ${isMe ? `<span onclick="window.del('${id}')" style="color:red;cursor:pointer;font-size:12px;font-weight:bold">Apagar</span>` : ''}
+                    </div>
                     <div class="reactions" id="reacts-${id}"></div>
                 `;
 
                 windowMsg.appendChild(div);
                 windowMsg.scrollTop = windowMsg.scrollHeight;
-                if(!isMe) document.getElementById('notifSound').play().catch(()=>{});
+                if(!isMe) {
+                    const sound = document.getElementById('notifSound');
+                    sound.currentTime = 0;
+                    sound.play().catch(()=>{});
+                }
             });
 
-            // Reações e Remoção
+            // Reações e Monitoramento de Remoção
             onChildChanged(ref(db, 'messages'), (snap) => {
                 const m = snap.val(); const bar = document.getElementById(`reacts-${snap.key}`);
                 if(!bar) return; bar.innerHTML = '';
@@ -248,9 +286,9 @@
             });
             onChildRemoved(ref(db, 'messages'), s => document.getElementById(s.key)?.remove());
 
-            // Funções de Ação
+            // --- FUNÇÕES DE AÇÃO ---
             window.revealMsg = (id, content) => {
-                document.getElementById(`body-${id}`).innerHTML = `<div style="color:var(--accent)">${content}</div>`;
+                document.getElementById(`body-${id}`).innerHTML = `<div style="color:var(--accent);font-style:italic">${content}</div>`;
                 setTimeout(() => remove(ref(db, `messages/${id}`)), 10000);
             };
 
@@ -262,7 +300,16 @@
                 input.focus();
             };
 
-            window.del = (id) => { if(confirm("Apagar?")) remove(ref(db, `messages/${id}`)); };
+            window.del = (id) => { if(confirm("Apagar mensagem?")) remove(ref(db, `messages/${id}`)); };
+
+            window.reportMsg = (msgId, authorId) => {
+                if(confirm("Denunciar esta mensagem ao moderador?")) {
+                    push(ref(db, 'reports'), {
+                        msgId, authorId, reporter: user.displayName, time: new Date().toLocaleString()
+                    });
+                    alert("Denúncia enviada!");
+                }
+            };
         }
     </script>
 </body>
